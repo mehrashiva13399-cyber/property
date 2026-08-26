@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Delhi Real Estate Price Explorer (Ward-Level Boundaries)</title>
+
+  <!-- Leaflet CSS & Fonts -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-surface: #ffffff;
+      --bg-subtle: #f8fafc;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --border-color: #e2e8f0;
+      --primary: #2563eb;
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+
+      --color-high: #dc2626;
+      --color-med: #d97706;
+      --color-low: #059669;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    body, html { height: 100%; width: 100%; overflow: hidden; background: #0f172a; color: var(--text-main); }
+
+    #app-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      background: #f1f5f9;
+    }
+
+    #loadState {
+      position: absolute;
+      inset: 0;
+      z-index: 2000;
+      background: #0f172a;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 0.95rem;
+    }
+    #loadState.hidden { display: none; }
+    .spinner {
+      width: 34px; height: 34px;
+      border: 3px solid rgba(255,255,255,0.2);
+      border-top-color: #38bdf8;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Floating Navigation */
+    .top-nav {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      right: 16px;
+      z-index: 1000;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    .nav-card {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      padding: 10px 16px;
+      border-radius: 12px;
+      box-shadow: var(--shadow-lg);
+      border: 1px solid var(--border-color);
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-title {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .brand-sub {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .search-box {
+      position: relative;
+      flex: 1;
+      max-width: 300px;
+    }
+
+    .search-box input {
+      width: 100%;
+      padding: 8px 12px 8px 32px;
+      font-size: 0.88rem;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      outline: none;
+      background: #f8fafc;
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    select, .btn-action {
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--text-main);
+      cursor: pointer;
+      outline: none;
+    }
+
+    /* Legend Box */
+    .map-legend {
+      position: absolute;
+      bottom: 24px;
+      right: 16px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(12px);
+      border-radius: 12px;
+      padding: 12px 16px;
+      box-shadow: var(--shadow-lg);
+      border: 1px solid var(--border-color);
+      min-width: 220px;
+    }
+
+    .legend-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .legend-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .color-pill {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 1px solid rgba(0,0,0,0.15);
+    }
+
+    .legend-note {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      margin-top: 8px;
+      line-height: 1.35;
+      border-top: 1px solid var(--border-color);
+      padding-top: 8px;
+    }
+
+    /* Details Panel */
+    .details-drawer {
+      position: absolute;
+      top: 80px;
+      right: 16px;
+      bottom: 120px;
+      width: 350px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.98);
+      backdrop-filter: blur(12px);
+      border-radius: 16px;
+      box-shadow: var(--shadow-lg);
+      border: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transform: translateX(390px);
+      transition: transform 0.3s ease;
+    }
+
+    .details-drawer.open { transform: translateX(0); }
+
+    .drawer-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      background: var(--bg-subtle);
+    }
+
+    .drawer-body {
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .badge-pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .badge-high { background: #fee2e2; color: #dc2626; }
+    .badge-med { background: #fef3c7; color: #d97706; }
+    .badge-low { background: #d1fae5; color: #059669; }
+
+    .info-card {
+      background: #f8fafc;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+    }
+
+    .info-card-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    /* Custom Leaflet Tooltip */
+    .leaflet-tooltip-custom {
+      background: rgba(15, 23, 42, 0.92) !important;
+      color: #ffffff !important;
+      border: none !important;
+      border-radius: 8px !important;
+      padding: 8px 12px !important;
+      font-size: 0.85rem !important;
+      box-shadow: var(--shadow-lg) !important;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app-container">
+
+  <div id="loadState">
+    <div class="spinner"></div>
+    <div id="loadStateText">Loading Delhi ward boundaries…</div>
+  </div>
+
+  <!-- Top Navigation -->
+  <header class="top-nav">
+    <div class="nav-card">
+      <div>
+        <div class="brand-title">📍 Delhi Property Map</div>
+        <div class="brand-sub">290 real ward boundaries</div>
+      </div>
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="localitySearch" placeholder="Search ward (e.g. Saket, Dwarka)..." list="localityList" />
+        <datalist id="localityList"></datalist>
+      </div>
+    </div>
+
+    <div class="nav-card">
+      <select id="priceFilter">
+        <option value="All">All Tiers</option>
+        <option value="High">🔴 High (> ₹20,000 /sqft)</option>
+        <option value="Medium">🟡 Medium (₹9,000 - ₹20,000)</option>
+        <option value="Low">🟢 Low (< ₹9,000 /sqft)</option>
+      </select>
+      <button id="resetMapBtn" class="btn-action">↺ Reset View</button>
+    </div>
+  </header>
+
+  <!-- Leaflet Map -->
+  <div id="map"></div>
+
+  <!-- Legend -->
+  <div class="map-legend">
+    <div class="legend-title">Price Tiers</div>
+    <div class="legend-row">
+      <span class="color-pill" style="background: #ef4444;"></span>
+      <span>High (> ₹20,000 /sq.ft)</span>
+    </div>
+    <div class="legend-row">
+      <span class="color-pill" style="background: #f59e0b;"></span>
+      <span>Medium (₹9,000 - ₹20,000)</span>
+    </div>
+    <div class="legend-row">
+      <span class="color-pill" style="background: #10b981;"></span>
+      <span>Low (< ₹9,000 /sq.ft)</span>
+    </div>
+    <div class="legend-note">
+      Boundaries are real MCD / NDMC / Cantonment wards (Oorvani Foundation / OpenCity). Delhi's brand-new 39-subdivision revenue map (Jan 2026) has no public shapefile yet, so wards give the most accurate real shapes available today.
+    </div>
+  </div>
+
+  <!-- Locality Drawer -->
+  <aside class="details-drawer" id="detailsDrawer">
+    <div class="drawer-header">
+      <div>
+        <h2 id="drawerTitle" style="font-size: 1.15rem; font-weight: 800;">Ward Details</h2>
+        <span id="drawerZone" style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600;">Delhi Region</span>
+      </div>
+      <button class="close-btn" id="closeDrawer">&times;</button>
+    </div>
+    <div class="drawer-body">
+      <div>
+        <span class="badge-pill" id="drawerBadge">High</span>
+      </div>
+
+      <div class="info-card">
+        <div class="info-card-label">ESTIMATED AVERAGE RATE</div>
+        <div style="font-size: 1.1rem; font-weight: 800; color: #0f172a;" id="drawerAvgPrice">₹0 /sq.ft</div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;" id="drawerPriceRange">Range: -</div>
+      </div>
+
+      <div class="info-card">
+        <div class="info-card-label">PROPERTY TYPES</div>
+        <div id="drawerPropType" style="font-weight: 600; font-size: 0.85rem;">-</div>
+      </div>
+
+      <div class="info-card">
+        <div class="info-card-label">OVERVIEW</div>
+        <p id="drawerDesc" style="font-size: 0.82rem; line-height: 1.4; color: #475569;">-</p>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<script>
+  /* -----------------------------------------------------------
+     1. PRICE DATA DICTIONARY
+  ----------------------------------------------------------- */
+  const PRICE_METRICS = {
+    "High": { color: "#ef4444", fillOpacity: 0.55 },
+    "Medium": { color: "#f59e0b", fillOpacity: 0.50 },
+    "Low": { color: "#10b981", fillOpacity: 0.45 }
+  };
+
+  // Mock market data keyed by known locality/area names.
+  // Ward names are matched against these keys (substring match, longest key wins).
+  const LOCALITY_MARKET_DATA = {
+    "defence colony": { category: "High", avgPrice: 34500, priceRange: "₹28,000 - ₹48,000", type: "Luxury Builder Floors", desc: "Prime South Delhi district with top commercial hubs and high land values." },
+    "greater kailash": { category: "High", avgPrice: 32500, priceRange: "₹26,000 - ₹45,000", type: "Builder Floors & Bungalows", desc: "Affluent residential neighborhood home to famous retail markets." },
+    "hauz khas": { category: "High", avgPrice: 31000, priceRange: "₹24,000 - ₹42,000", type: "Builder Floors", desc: "Vibrant hub surrounded by heritage parks and nightlife destinations." },
+    "saket": { category: "High", avgPrice: 22500, priceRange: "₹16,000 - ₹32,000", type: "DDA Flats & Apartments", desc: "Major retail and hospital district with high residential demand." },
+    "vasant kunj": { category: "High", avgPrice: 24500, priceRange: "₹18,000 - ₹34,000", type: "Societies & Villas", desc: "Low-density green area close to the international airport." },
+    "vasant vihar": { category: "High", avgPrice: 30500, priceRange: "₹24,000 - ₹40,000", type: "Diplomatic Enclave Bungalows", desc: "Upscale diplomatic residential enclave near the airport." },
+    "karol bagh": { category: "High", avgPrice: 27000, priceRange: "₹19,000 - ₹36,000", type: "Commercial & Residential", desc: "Central shopping hub with high commercial rental yields." },
+    "lajpat nagar": { category: "High", avgPrice: 24800, priceRange: "₹17,000 - ₹33,000", type: "Builder Floors", desc: "Bustling central residential locality." },
+    "chanakya": { category: "High", avgPrice: 36000, priceRange: "₹30,000 - ₹52,000", type: "Diplomatic Bungalows", desc: "Lutyens' Delhi diplomatic enclave, among the costliest land in India." },
+    "civil lines": { category: "High", avgPrice: 26000, priceRange: "₹19,000 - ₹34,000", type: "Colonial Bungalows", desc: "Historic elite residential belt in North Delhi." },
+    "punjabi bagh": { category: "High", avgPrice: 23500, priceRange: "₹17,000 - ₹31,000", type: "Independent Houses", desc: "Well-established, leafy West Delhi residential colony." },
+    "rajouri garden": { category: "High", avgPrice: 21500, priceRange: "₹15,500 - ₹29,000", type: "Builder Floors", desc: "Popular West Delhi shopping and residential hub." },
+    "malviya nagar": { category: "High", avgPrice: 21000, priceRange: "₹15,000 - ₹28,000", type: "Builder Floors", desc: "Well-connected South Delhi residential market." },
+    "chandni chowk": { category: "High", avgPrice: 22000, priceRange: "₹15,000 - ₹30,000", type: "Commercial & Heritage Mixed-use", desc: "Old Delhi's historic wholesale and commercial core." },
+    "dwarka": { category: "Medium", avgPrice: 15650, priceRange: "₹11,000 - ₹21,000", type: "Group Housing Societies", desc: "Well-planned sub-city near IGI Airport and major expressways." },
+    "rohini": { category: "Medium", avgPrice: 14200, priceRange: "₹9,500 - ₹19,000", type: "DDA Flats & Apartments", desc: "Massive planned sub-city in North West Delhi." },
+    "pitampura": { category: "Medium", avgPrice: 18500, priceRange: "₹13,000 - ₹24,000", type: "Builder Floors", desc: "Established zone adjacent to Netaji Subhash Place commercial district." },
+    "janak puri": { category: "Medium", avgPrice: 16800, priceRange: "₹12,000 - ₹22,000", type: "Independent Builder Floors", desc: "West Delhi core with solid connectivity and metro links." },
+    "janakpuri": { category: "Medium", avgPrice: 16800, priceRange: "₹12,000 - ₹22,000", type: "Independent Builder Floors", desc: "West Delhi core with solid connectivity and metro links." },
+    "mayur vihar": { category: "Medium", avgPrice: 13500, priceRange: "₹9,500 - ₹17,500", type: "Apartment Societies", desc: "Strategic residential area connecting Central Delhi and Noida." },
+    "paschim vihar": { category: "Medium", avgPrice: 15200, priceRange: "₹10,500 - ₹20,000", type: "Apartments & Builder Floors", desc: "Established West Delhi residential neighbourhood." },
+    "vikas puri": { category: "Medium", avgPrice: 13800, priceRange: "₹9,800 - ₹18,000", type: "DDA Flats", desc: "Densely developed West Delhi residential colony." },
+    "mukherjee nagar": { category: "Medium", avgPrice: 12500, priceRange: "₹9,000 - ₹16,500", type: "PG & Rental Housing", desc: "North Delhi hub known for student housing near Delhi University." },
+    "model town": { category: "Medium", avgPrice: 16500, priceRange: "₹11,500 - ₹22,000", type: "Independent Houses", desc: "Established North Delhi planned residential colony." },
+    "preet vihar": { category: "Medium", avgPrice: 14800, priceRange: "₹10,200 - ₹19,500", type: "Builder Floors", desc: "Well-connected East Delhi residential and commercial belt." },
+    "patparganj": { category: "Medium", avgPrice: 13200, priceRange: "₹9,200 - ₹17,500", type: "Group Housing Societies", desc: "East Delhi residential zone bordering Noida." },
+    "vishwas nagar": { category: "Medium", avgPrice: 11800, priceRange: "₹8,200 - ₹15,500", type: "Mixed Residential-Commercial", desc: "Densely built East Delhi neighbourhood." },
+    "khyala": { category: "Medium", avgPrice: 12200, priceRange: "₹8,500 - ₹16,000", type: "Independent Floors", desc: "West Delhi residential locality near Tilak Nagar." },
+    "uttam nagar": { category: "Low", avgPrice: 5800, priceRange: "₹3,800 - ₹8,200", type: "Low-rise Builder Floors", desc: "High-density affordable market with direct metro access." },
+    "shahdara": { category: "Low", avgPrice: 7900, priceRange: "₹5,200 - ₹11,500", type: "Flats & Independent Houses", desc: "Historic Trans-Yamuna regional commercial area." },
+    "narela": { category: "Low", avgPrice: 4600, priceRange: "₹3,200 - ₹6,800", type: "Plots & Industrial Residential", desc: "Developing northern border zone with expanding road connectivity." },
+    "najafgarh": { category: "Low", avgPrice: 4200, priceRange: "₹2,900 - ₹6,200", type: "Plots & Houses", desc: "Suburban belt offering economical land and plot options." },
+    "chhawla": { category: "Low", avgPrice: 3800, priceRange: "₹2,600 - ₹5,600", type: "Rural / Agricultural Plots", desc: "Outer South West Delhi rural-urban fringe." },
+    "bawana": { category: "Low", avgPrice: 4400, priceRange: "₹3,000 - ₹6,500", type: "Industrial & Resettlement Housing", desc: "Industrial belt in outer North West Delhi." },
+    "nangloi": { category: "Low", avgPrice: 5600, priceRange: "₹3,900 - ₹8,000", type: "Resettlement Colonies", desc: "Densely populated outer West Delhi area." },
+    "sultanpuri": { category: "Low", avgPrice: 5200, priceRange: "₹3,600 - ₹7,400", type: "Resettlement Colonies", desc: "Outer North West Delhi resettlement colony belt." },
+    "mangolpuri": { category: "Low", avgPrice: 5400, priceRange: "₹3,700 - ₹7,600", type: "Resettlement Colonies", desc: "Outer North West Delhi resettlement colony belt." },
+    "seelampur": { category: "Low", avgPrice: 6800, priceRange: "₹4,500 - ₹9,800", type: "Dense Mixed-use Housing", desc: "Densely populated Trans-Yamuna trading and residential belt." },
+    "nand nagri": { category: "Low", avgPrice: 6200, priceRange: "₹4,200 - ₹8,900", type: "Resettlement Colonies", desc: "North East Delhi resettlement colony." },
+    "gokalpur": { category: "Low", avgPrice: 5900, priceRange: "₹4,000 - ₹8,400", type: "Resettlement Colonies", desc: "North East Delhi outer resettlement belt." },
+    "sunder nagri": { category: "Low", avgPrice: 6000, priceRange: "₹4,100 - ₹8,600", type: "Resettlement Colonies", desc: "North East Delhi resettlement colony." },
+    "trilokpuri": { category: "Low", avgPrice: 7200, priceRange: "₹4,900 - ₹10,200", type: "Resettlement Colonies", desc: "East Delhi resettlement colony bordering Noida." }
+  };
+
+  // Fallback generation for wards not explicitly mapped above.
+  // Deterministic hash on the *actual distinct ward name*, so every ward
+  // gets a stable but different tier instead of collapsing to one value.
+  function hashString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+    }
+    return hash;
+  }
+
+  function getMarketInfo(wardName) {
+    const key = (wardName || "").toLowerCase().trim();
+
+    // Longest matching key wins, so "vasant vihar" doesn't get eaten by "vasant kunj" etc.
+    let bestMatch = null;
+    for (const k in LOCALITY_MARKET_DATA) {
+      if (key.includes(k)) {
+        if (!bestMatch || k.length > bestMatch.length) bestMatch = k;
+      }
+    }
+    if (bestMatch) return LOCALITY_MARKET_DATA[bestMatch];
+
+    const hash = hashString(key);
+    if (hash % 3 === 0) {
+      return { category: "High", avgPrice: 20000 + (hash % 10000), priceRange: "₹15,000 - ₹30,000", type: "Builder Floors", desc: "High-demand urban ward in Delhi." };
+    } else if (hash % 3 === 1) {
+      return { category: "Medium", avgPrice: 11000 + (hash % 7000), priceRange: "₹8,500 - ₹18,500", type: "Apartment Flats", desc: "Established mid-tier residential ward." };
+    } else {
+      return { category: "Low", avgPrice: 4500 + (hash % 3500), priceRange: "₹3,200 - ₹8,500", type: "Affordable Housing / Floors", desc: "Economical residential ward." };
+    }
+  }
+
+  /* -----------------------------------------------------------
+     2. MAP & GEOJSON SETUP
+  ----------------------------------------------------------- */
+  const map = L.map('map', { zoomControl: false }).setView([28.620, 77.150], 11);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO'
+  }).addTo(map);
+
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+  let geojsonLayer = null;
+  let activeLayer = null;
+
+  // Real, verified ward-level boundaries for Delhi (MCD + NDMC + Cantonment),
+  // 290 features, each with a distinct Ward_Name / Ward_No.
+  // Source: Oorvani Foundation / OpenCity, served via the bharatlas open-data catalog (CC-BY-SA-4.0).
+  const GEOJSON_URL = "https://pub-0429b8e3b5a946e69ea007df844a6f1c.r2.dev/admin/wards-delhi/wards_delhi.geojson";
+
+  const loadState = document.getElementById('loadState');
+  const loadStateText = document.getElementById('loadStateText');
+
+  fetch(GEOJSON_URL)
+    .then(res => {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(geojsonData => {
+      initGeoJsonMap(geojsonData);
+      loadState.classList.add('hidden');
+    })
+    .catch(err => {
+      console.error("Could not load ward boundaries:", err);
+      loadStateText.textContent = "Couldn't load map data. Check your network settings and reload.";
+    });
+
+  function wardName(feature) {
+    return (feature.properties && (feature.properties.Ward_Name || feature.properties.name)) || "Unnamed Ward";
+  }
+
+  function styleFeature(feature) {
+    const info = getMarketInfo(wardName(feature));
+    const theme = PRICE_METRICS[info.category];
+
+    return {
+      fillColor: theme.color,
+      weight: 1,
+      opacity: 1,
+      color: '#ffffff',
+      fillOpacity: theme.fillOpacity
+    };
+  }
+
+  function initGeoJsonMap(data) {
+    geojsonLayer = L.geoJson(data, {
+      style: styleFeature,
+      onEachFeature: function(feature, layer) {
+        const name = wardName(feature);
+        const info = getMarketInfo(name);
+
+        layer.bindTooltip(`
+          <div style="font-weight:800;">${name}</div>
+          <div style="font-size:0.75rem;">Tier: <strong>${info.category}</strong></div>
+          <div style="color:#38bdf8; font-weight:700;">Avg: ₹${info.avgPrice.toLocaleString('en-IN')}/sq.ft</div>
+        `, { className: 'leaflet-tooltip-custom', sticky: true });
+
+        layer.on({
+          mouseover: function(e) {
+            const l = e.target;
+            if (l !== activeLayer) {
+              l.setStyle({ weight: 2.5, color: '#0f172a', fillOpacity: 0.75 });
+              l.bringToFront();
+            }
+          },
+          mouseout: function(e) {
+            if (e.target !== activeLayer) {
+              geojsonLayer.resetStyle(e.target);
+            }
+          },
+          click: function(e) {
+            selectArea(name, info, e.target);
+          }
+        });
+
+        const opt = document.createElement('option');
+        opt.value = name;
+        document.getElementById('localityList').appendChild(opt);
+      }
+    }).addTo(map);
+  }
+
+  /* -----------------------------------------------------------
+     3. INTERACTION & SELECTION HANDLERS
+  ----------------------------------------------------------- */
+  function selectArea(name, info, layer) {
+    if (activeLayer) geojsonLayer.resetStyle(activeLayer);
+
+    activeLayer = layer;
+    activeLayer.setStyle({ weight: 3, color: '#2563eb', fillOpacity: 0.85 });
+    map.flyToBounds(layer.getBounds(), { padding: [50, 50], maxZoom: 15, duration: 1 });
+
+    document.getElementById('drawerTitle').innerText = name;
+    document.getElementById('drawerBadge').innerText = `${info.category} Tier`;
+    document.getElementById('drawerBadge').className = `badge-pill badge-${info.category.toLowerCase()}`;
+    document.getElementById('drawerAvgPrice').innerText = `₹${info.avgPrice.toLocaleString('en-IN')} /sq.ft`;
+    document.getElementById('drawerPriceRange').innerText = `Range: ${info.priceRange} /sq.ft`;
+    document.getElementById('drawerPropType').innerText = info.type;
+    document.getElementById('drawerDesc').innerText = info.desc;
+
+    document.getElementById('detailsDrawer').classList.add('open');
+  }
+
+  document.getElementById('closeDrawer').addEventListener('click', () => {
+    document.getElementById('detailsDrawer').classList.remove('open');
+    if (activeLayer) {
+      geojsonLayer.resetStyle(activeLayer);
+      activeLayer = null;
+    }
+  });
+
+  document.getElementById('localitySearch').addEventListener('input', (e) => {
+    const val = e.target.value.trim().toLowerCase();
+    if (!geojsonLayer || !val) return;
+
+    geojsonLayer.eachLayer(layer => {
+      const name = wardName(layer.feature).toLowerCase();
+      if (name === val) {
+        const info = getMarketInfo(wardName(layer.feature));
+        selectArea(wardName(layer.feature), info, layer);
+      }
+    });
+  });
+
+  document.getElementById('priceFilter').addEventListener('change', (e) => {
+    const val = e.target.value;
+    if (!geojsonLayer) return;
+
+    geojsonLayer.eachLayer(layer => {
+      const name = wardName(layer.feature);
+      const info = getMarketInfo(name);
+
+      if (val === 'All' || info.category === val) {
+        layer.setStyle({ opacity: 1, fillOpacity: PRICE_METRICS[info.category].fillOpacity });
+      } else {
+        layer.setStyle({ opacity: 0.08, fillOpacity: 0.04 });
+      }
+    });
+  });
+
+  document.getElementById('resetMapBtn').addEventListener('click', () => {
+    document.getElementById('priceFilter').value = 'All';
+    document.getElementById('localitySearch').value = '';
+    if (geojsonLayer) {
+      geojsonLayer.eachLayer(l => geojsonLayer.resetStyle(l));
+    }
+    map.setView([28.620, 77.150], 11);
+    document.getElementById('detailsDrawer').classList.remove('open');
+  });
+</script>
+</body>
+</html>
